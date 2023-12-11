@@ -382,7 +382,8 @@ def get_local_ip():
     try:
         s.connect(("10.254.254.254", 1))
         local_ip = s.getsockname()[0]
-    except Exception:
+    except Exception as e:
+        logging.warning(f"Unable to get local IP: {e}")
         local_ip = None
     s.close()
     return local_ip
@@ -391,8 +392,15 @@ def get_local_ip():
 def resolve_ip_external_dns(address, dns="1.1.1.1"):
     res = resolver.Resolver()
     res.nameservers = [dns]
-
-    answers = res.resolve(address)
+    try:
+        answers = res.resolve(address)
+    except (
+        resolver.LifetimeTimeout,
+        resolver.NoNameservers,
+        resolver.NoAnswer,
+    ) as e:
+        logging.warning(f"Unable to resolve {address}: {e}")
+        return None
 
     if len(answers) > 0:
         return answers[0].address

@@ -20,6 +20,7 @@ from const import (
     DEFAULT_MQTT_HOST,
     DEFAULT_MQTT_PORT,
     DEFAULT_SRC,
+    VERSION,
 )
 from dns import resolver
 from ha_mqtt_discoverable import DeviceInfo, Settings
@@ -81,6 +82,7 @@ class JuiceboxMessageHandler(object):
             ],
             manufacturer="EnelX",
             model="JuiceBox",
+            sw_version=VERSION,
             via_device="JuicePass Proxy",
         )
         self._init_device_status(device_info)
@@ -550,6 +552,7 @@ def main():
     else:
         logging.getLogger().setLevel(logging.INFO)
 
+    logging.info(f"Starting JuicePass Proxy {VERSION}")
     if args.update_udpc and not args.juicebox_host:
         raise argparse.ArgumentError(arg_juicebox_host, "juicebox_host is required")
 
@@ -635,7 +638,7 @@ def main():
         juicebox_id=juicebox_id,
     )
     handler.basic_message_publish(
-        {"type": "debug", "debug_message": "INFO: Starting JuicePass Proxy"}
+        {"type": "debug", "debug_message": f"INFO: Starting JuicePass Proxy {VERSION}"}
     )
     pyproxy.LOCAL_DATA_HANDLER = handler.local_data_handler
     pyproxy.REMOTE_DATA_HANDLER = handler.remote_data_handler

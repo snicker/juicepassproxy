@@ -262,6 +262,15 @@ class JuiceboxMessageHandler(object):
         )
         return message
 
+    def pyproxy_oserror_message_try_parse(self, data):
+        message = {"type": "pyproxy_oserror"}
+        err_data = str(data).split("|")
+        message["status"] = "unavailable"
+        message[
+            "debug_message"
+        ] = f"PyProxy {err_data[1].title()} OSError {err_data[3]} [{err_data[2]}]: {err_data[4]}"
+        return message
+
     def debug_message_try_parse(self, data):
         message = {"type": "debug"}
         dbg_data = (
@@ -301,7 +310,9 @@ class JuiceboxMessageHandler(object):
 
     def local_data_handler(self, data):
         logging.debug("local: {}".format(data))
-        if ":DBG," in str(data):
+        if "PYPROXY_OSERROR" in str(data):
+            message = self.pyproxy_oserror_message_try_parse(data)
+        elif ":DBG," in str(data):
             message = self.debug_message_try_parse(data)
         else:
             message = self.basic_message_try_parse(data)

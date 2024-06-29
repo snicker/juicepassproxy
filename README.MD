@@ -205,3 +205,26 @@ list
 The address is in the `UDPC` line. Run, `ping`, `nslookup`, or similar command to determine the IP.
 
 As of November, 2023: `juicenet-udp-prod3-usa.enelx.com` = `54.161.185.130`.
+
+## Controlling Charging current
+
+- **Max Current**
+   - The maximum current that device will charge when offline (not connected to juicebox or Enel X)
+      - 2024-06 tested on device which send protocol v09u it changes **Max Charging Current** to this value around 5 minutes after not receiving messages from proxy
+   - Stored on EEPROM - https://github.com/snicker/juicepassproxy/issues/39#issuecomment-2002312548
+      - Because of this **don't change that value many times**, as any EEPROM has a lifespan based on writes and the *Max Charging Current* will make possible to control the Current for Charging
+- **Max Charging Current**
+   - Control the Current that Juicebox provides to the vehicle when connected to server
+   - Can be used for example to control charging based on Solar Power generation
+      - As suggestion check for changes at 3-5 minutes intervals
+         - this give time for stabilizations on charging and energy generation
+         - this interval was tested with old ENEL X API integration and now with juicepassproxy responding to juicebox
+   - Putting 0 pauses the charging
+      - Pausing will reset the session energy value
+      - This may affect the lifespan of internal contactor if paused/restarted too many times
+   - Some cars can have different behaviours
+     - Bolt 2022 (Brazil) checks the Current at connection 
+         - if the value is less equal than 10 A it will consider that is using a portable charger and cannot accept Current changes greater than 10A later
+         - if the value is 0 A (Pause), it will show a charging error on dashboard but will start charging when value goes to 6A or over
+     
+     

@@ -79,12 +79,19 @@ class JuiceboxMQTTEntity:
     async def set(self, state=None):
         self._state = state
         try:
-            getattr(self._mqtt, self._set_func)(state)
+            if self.entity_type == 'number':
+                # float to be used by any number, JuiceboxMessage will use int
+                getattr(self._mqtt, self._set_func)(float(state))
+            elif self.entity_type == 'switch':
+                # float to be used by any number, JuiceboxMessage will use int
+                getattr(self._mqtt, self._set_func)(state.lower() == 'on')
+            else:
+                getattr(self._mqtt, self._set_func)(state)
         except AttributeError as e:
             if self._add_error is not None:
                 await self._add_error()
             _LOGGER.warning(
-                f"Can't update attribtutes for {self.name} "
+                f"Can't update attributes for {self.name} "
                 "as MQTT isn't connected/started. "
                 f"({e.__class__.__qualname__}: {e})"
             )
@@ -97,7 +104,7 @@ class JuiceboxMQTTEntity:
             if self._add_error is not None:
                 await self._add_error()
             _LOGGER.warning(
-                f"Can't update attribtutes for {self.name} "
+                f"Can't update attributes for {self.name} "
                 "as MQTT isn't connected/started. "
                 f"({e.__class__.__qualname__}: {e})"
             )
@@ -133,6 +140,9 @@ class JuiceboxMQTTSendingEntity(JuiceboxMQTTEntity):
 
         if self._kwargs.get("initial_state", None) is not None:
             await self.set(self._kwargs.get("initial_state", None))
+        elif self.entity_type == 'number':
+            # The state will came on juicebox messages
+            _LOGGER.warning(f"{self.name} has no initial_state")
         else:
             await self.set(self.name)
 
@@ -151,8 +161,13 @@ class JuiceboxMQTTSendingEntity(JuiceboxMQTTEntity):
             f"{state}. User Data: {user_data}"
         )
         if self._mitm_handler:
-            _LOGGER.debug(f"Sending to MITM: {state}")
-            await self._mitm_handler.send_data_to_juicebox(state.encode("utf-8"))
+            if user_data == 'RAW':
+                _LOGGER.debug(f"Sending to MITM: {state}")
+                await self._mitm_handler.send_data_to_juicebox(state.encode("utf-8"))
+            else:
+                # Internal state must be set before sending message to juicebox
+                await self.set(state)
+                await self._mitm_handler.send_cmd_message_to_juicebox(new_values=True)
         else:
             if self._add_error is not None:
                 await self._add_error()
@@ -172,6 +187,39 @@ class JuiceboxMQTTSensor(JuiceboxMQTTEntity):
         self.entity_type = "sensor"
         self._set_func = "set_state"
         super().__init__(name, **kwargs)
+
+
+class JuiceboxMQTTNumber(JuiceboxMQTTSendingEntity):
+    def __init__(
+        self,
+        name,
+        **kwargs,
+    ):
+        # _LOGGER.debug(f"Number Init: {name}")
+        self.entity_type = "number"
+        self._set_func = "set_value"
+        super().__init__(name, **kwargs)
+
+
+
+class JuiceboxMQTTSwitch(JuiceboxMQTTSendingEntity):
+    def __init__(
+        self,
+        name,
+        **kwargs,
+    ):
+        # _LOGGER.debug(f"Boolean Init: {name}")
+        self.entity_type = "switch"
+        self._set_func = "update_state"
+        super().__init__(name, **kwargs)
+
+
+    def is_on(self):
+
+        if type(self.state) is str:
+           return self.state.lower() == 'on'
+           
+        return self.state
 
 
 class JuiceboxMQTTText(JuiceboxMQTTSendingEntity):
@@ -195,6 +243,7 @@ class JuiceboxMQTTHandler:
         device_name,
         mqtt_settings,
         experimental,
+        max_current,
         juicebox_id=None,
         mitm_handler=None,
         loglevel=None,
@@ -206,6 +255,7 @@ class JuiceboxMQTTHandler:
         self._juicebox_id = juicebox_id
         self._experimental = experimental
         self._mitm_handler = mitm_handler
+        self._max_current = max_current
         self._error_count = 0
         self._error_timestamp_list = []
 
@@ -239,11 +289,32 @@ class JuiceboxMQTTHandler:
                 device_class="current",
                 unit_of_measurement="A",
             ),
+            # Maximum supported by device
             "current_rating": JuiceboxMQTTSensor(
                 name="Current Rating",
                 state_class="measurement",
                 device_class="current",
                 unit_of_measurement="A",
+            ),
+            # Offline max 
+            "current_max": JuiceboxMQTTNumber(
+                name="Max Current",
+                device_class="current",
+                unit_of_measurement="A",
+                min=0,
+                max=self._max_current,
+                # no initial state, to use the value that will be received from juicebox
+                # 2024-06-29 tested on v09u juicebox 
+                #   it changed the current_max_charging to this value after around 5 minutes without receiving CMD messages
+            ),
+            # Instant / Charging current
+            "current_max_charging": JuiceboxMQTTNumber(
+                name="Max Charging Current",
+                device_class="current",
+                unit_of_measurement="A",
+                min=0,
+                max=self._max_current,
+                # no initial state, to use the value that will be received from juicebox
             ),
             "frequency": JuiceboxMQTTSensor(
                 name="Frequency",
@@ -281,6 +352,14 @@ class JuiceboxMQTTHandler:
                 device_class="power",
                 unit_of_measurement="W",
             ),
+            # Make possible to control from HA when juicepassproxy will act as ENEL X server for the juicebox
+            # Will only work when ignoring ENEL X server
+            "act_as_server": JuiceboxMQTTSwitch(
+                name="Act as Server",
+                enabled_by_default=False,
+                # As will only work when ignoring ENEL X server, True appear to be good for initial state
+                initial_state="ON",
+            ),
             "debug_message": JuiceboxMQTTSensor(
                 name="Last Debug Message",
                 # expire_after=60,
@@ -303,6 +382,7 @@ class JuiceboxMQTTHandler:
             ),
             "send_to_juicebox": JuiceboxMQTTText(
                 name="Send Command to JuiceBox",
+                user_data="RAW",
                 experimental=True,
                 enabled_by_default=False,
             ),
@@ -317,6 +397,9 @@ class JuiceboxMQTTHandler:
             if entity.entity_type in MQTT_SENDING_ENTITIES:
                 entity.add_kwargs(mitm_handler=self._mitm_handler)
 
+    def get_entity(self, name):
+        return self._entities[name]
+        
     async def start(self):
         _LOGGER.info("Starting JuiceboxMQTTHandler")
 
@@ -340,24 +423,16 @@ class JuiceboxMQTTHandler:
                 entity.add_kwargs(mitm_handler=mitm_handler)
 
     async def _basic_message_parse(self, data: bytes):
+        # TODO change to receive a JuiceboxMessage which is already parsed
+
         message = {"type": "basic", "current": 0, "energy_session": 0}
         active = True
+        
         parts = re.split(r",|!|:", data.decode("utf-8"))
         parts.pop(0)  # JuiceBox ID
         parts.pop(-1)  # Ending blank
         parts.pop(-1)  # Checksum
 
-        # Undefined parts: F, e, r, b, B, P, p
-        # https://github.com/snicker/juicepassproxy/issues/52
-        # s = Counter
-        # v = version of protocol
-        # i = Interval number. It contains a 96-slot interval memory (15-minute x 24-hour cycle) and
-        #   this tells you how much energy was consumed in the rolling window as it reports one past
-        #   (or current, if it's reporting the "right-now" interval) interval per message.
-        #   The letter after "i" = the energy in that interval (usually 0 if you're not charging basically 24/7)
-        # t - probably the report time in seconds - "every 9 seconds" (or may end up being 10).
-        #   It can change its reporting interval if the bit mask in the reply command indicates that it should send reports faster (yet to be determined).
-        # u - loop counter
         for part in parts:
             if part[0] == "S":
                 message["status"] = {
@@ -379,8 +454,10 @@ class JuiceboxMQTTHandler:
                 )
             elif part[0] == "m":
                 message["current_rating"] = float(part.split("m")[1])
+            elif part[0] == "C":
+                message["current_max"] = float(part.split("C")[1])
             elif part[0] == "M":
-                message["current_setting"] = float(part.split("M")[1])
+                message["current_max_charging"] = float(part.split("M")[1])
             elif part[0] == "f":
                 message["frequency"] = round(float(part.split("f")[1]) * 0.01, 2)
             elif part[0] == "L":
@@ -400,7 +477,11 @@ class JuiceboxMQTTHandler:
             elif part[0] == "T":
                 message["temperature"] = round(float(part.split("T")[1]) * 1.8 + 32, 2)
             elif part[0] == "V":
-                message["voltage"] = round(float(part.split("V")[1]) * 0.1, 2)
+                # Device that does not send protocol_version dont send decimal value for Voltage
+                if message["protocol_version"]:
+                    message["voltage"] = round(float(part.split("V")[1]) * 0.1, 2)
+                else:
+                    message["voltage"] = round(float(part.split("V")[1]), 2)
             else:
                 message["unknown_" + part[0]] = part[1:]
         message["power"] = round(

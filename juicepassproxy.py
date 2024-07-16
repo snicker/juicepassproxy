@@ -497,6 +497,9 @@ async def main():
     experimental = args.experimental
     _LOGGER.info(f"experimental: {experimental}")
 
+    max_current = config.get("MAX_CURRENT", 48)
+    _LOGGER.info(f"max_current: {max_current}")
+    
     # Remove DST and SRC from Config as they have been replaced by ENELX_IP and LOCAL_IP respectively
     config.pop("DST", None)
     config.pop("SRC", None)
@@ -522,6 +525,7 @@ async def main():
             mqtt_settings=mqtt_settings,
             device_name=args.device_name,
             juicebox_id=juicebox_id,
+            max_current=max_current,
             experimental=experimental,
             loglevel=_LOGGER.getEffectiveLevel(),
         )
@@ -562,7 +566,7 @@ async def main():
                 *jpp_task_list,
             )
         except Exception as e:
-            _LOGGER.error(
+            _LOGGER.exception(
                 f"A JuicePass Proxy task failed: {e.__class__.__qualname__}: {e}"
             )
             await mqtt_handler.close()

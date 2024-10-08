@@ -22,7 +22,7 @@ jobs:
             echo "github.event.release.prerelease: ${{ github.event.release.prerelease }}"
             echo "github.event.release.draft: ${{ github.event.release.draft }}"
       - name: Checkout
-        uses: actions/checkout@v4.2.0
+        uses: actions/checkout@v4.2.1
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
       - name: Set up Docker Buildx

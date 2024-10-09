@@ -1,0 +1,29 @@
+name: "GHCR Checker"
+description: "check ghcr for existing container version"
+inputs:
+  configpath:
+    description: "path of the addon config to determine current version"
+    required: true
+  image:
+    description: "image to check (without ghcr.io/ prefix)"
+    required: true
+  token:
+    description: "token to use"
+    required: true
+outputs:
+  status:
+    description: "status code for image manifest"
+    value: ${{ steps.check.outputs.status }}
+runs:
+  using: "composite"
+  steps:
+    - shell: bash
+      id: version
+      run: |
+        echo "version=$(grep version ${{ inputs.configpath }}| awk -F: '{print $2}' | grep -Eo '[v0-9\.-]+')" >> "$GITHUB_OUTPUT"
+    - shell: bash
+      id: check
+      run: |
+        GHCR_TOKEN=$(echo ${{ inputs.token }} | base64)
+        STATUS=$(curl -H "Authorization: Bearer ${GHCR_TOKEN}" https://ghcr.io/v2/${{ inputs.image }}/manifests/${{ steps.version.outputs.version }} -o /dev/null -w "%{http_code}" -s)
+        echo "status=${STATUS}" >> "$GITHUB_OUTPUT"

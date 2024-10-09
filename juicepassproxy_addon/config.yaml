@@ -1,0 +1,27 @@
+name: "JuicePassProxy"
+description: "This tool will publish JuiceBox data by using a Man in the Middle UDP proxy to MQTT that is auto-discoverable by HomeAssistant."
+version: "0.3.0"
+image: ghcr.io/JuiceRescue/juicepassproxy/juicepassproxy-{arch}
+slug: "juicepassproxy"
+ports:
+  "8042/udp": 8042
+  "8042/udp": 8043
+  "8042/udp": 8047
+panel_icon: mdi:ev-station
+arch:
+  - aarch64
+  - amd64
+discovery:
+  - mqtt
+services:
+  - "mqtt:need"
+options:
+  juicebox_host: null
+  juicebox_device_name: JuiceBox
+  debug: false
+  ignore_enelx: true
+schema:
+  juicebox_host: str
+  juicebox_device_name: str
+  debug: bool
+  ignore_enelx: bool

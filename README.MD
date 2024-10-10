@@ -120,7 +120,7 @@ Variable | Required | Description & Default |
 **EXPERIMENTAL**  | No  | Default: false. Enables additional entities in Home Assistant that are in in development or can be used toward developing the ability to send commands to a JuiceBox
 **IGNORE_ENELX**  | No  | Default: false. If true, will not send commands received from EnelX to the JuiceBox nor send outgoing information from the JuiceBox to EnelX
 **TELNET_TIMEOUT**  | No  | Default: 30. Timeout in seconds for telnet operations.
-**JUICEBOX_ID**  | No | If not defined, will attempt to get the JuiceBox ID using telnet.
+**JUICEBOX_ID**  | No | If not defined, will attempt to get the JuiceBox ID using telnet, don't use this if you are testing multiple devices.
 **LOCAL_IP**<br><br>_Deprecated Variable: SRC_ | No | If not defined, will attempt to get the Local Docker IP. Can optionally define port (ex. 127.0.0.1:8047). If unsuccessful, will default to 127.0.0.1.
 **LOCAL_PORT** | No | Local port for JuicePass Proxy to listen on. If not defined, will use the EnelX Port.
 **ENELX_IP**<br><br>_Deprecated Variable: DST_ | No | If not defined, will attempt to get the IP of the EnelX Server. If unsuccessful, will default to 54.161.185.130. Can optionally define port (ex. 54.161.185.130:8047). If defined, only use the IP address of the EnelX Server and not the fully qualified domain name to avoid DNS lookup loops.
@@ -169,6 +169,8 @@ options:
   --ignore_enelx        If set, will not send commands received from EnelX to
                         the JuiceBox nor send outgoing information from the
                         JuiceBox to EnelX
+  --tp PORT, --telnet_port PORT
+                        Telnet PORT (default: 2000)
   --telnet_timeout SECONDS
                         Timeout in seconds for Telnet operations (default: 30)
   --juicebox_id ID      JuiceBox ID. If not defined, will obtain it
@@ -191,7 +193,7 @@ _For `--enelx_ip`, only use the IP address of the EnelX Server and **not** the f
 
 ## Getting EnelX Server IPs
 
-To get the destination IP:Port of the EnelX server, telnet into your JuiceBox device:
+To get the destination IP:Port of the EnelX server, telnet into your JuiceBox device and use the [list](https://docs.silabs.com/gecko-os/4/standard/4.2/cmd/commands#stream-list) command:
 `$ telnet 192.168.x.x 2000`
 and type the `list` command:
 
@@ -202,6 +204,70 @@ list
 # 1 UDPC  juicenet-udp-prod3-usa.enelx.com:8047 (26674)
 ```
 
-The address is in the `UDPC` line. Run, `ping`, `nslookup`, or similar command to determine the IP.
+The address is in the `UDPC` line. Run, `ping`, `nslookup`, or similar command to determine the IP.  The following [network_lookup](https://docs.silabs.com/gecko-os/4/standard/4.2/cmd/commands#network-lookup) command can be run in JuiceBox telnet to look it up while still connected:
+```
+network_lookup juicenet-udp-prod3-usa.enelx.com
+54.161.185.130
+network_lookup jvb1.emotorwerks.com
+158.47.1.128
+```
 
 As of November, 2023: `juicenet-udp-prod3-usa.enelx.com` = `54.161.185.130`.
+
+## Important information
+- This proxy is made using effort from owners that found information and made packet capture to reverse enginner the protocol used by the devices
+- There are many different firmware versions found
+    - some accept telnet, some others not 
+- Different protocol versions are found
+- We cannot assure that this will work will all versions
+- If this does not work with your device you must provide :
+    - logs (and if possible packet captures) with messages that are send to/from your device
+    - docker enviroment configuration used or juicepassproxy command line parameters
+    - if your device still works with ENELX servers but not with juicepass :
+        - a packet capture will provide usefull information to understand what are the differences that are not being considered yet
+- Sometimes it takes a while to stabilize, if you are changing between ENEL X and JPP let it running for some minutes before testing
+
+
+## Controlling Charging current
+
+- **Max Current (Offline/Wanted)**
+   - The maximum current that device will charge when offline (not connected to juicebox or Enel X)
+      - 2024-06 tested on device which send protocol v09u it changes **Max Charging Current** to this value around 5 minutes after not receiving messages from proxy
+   - Stored on EEPROM - https://github.com/snicker/juicepassproxy/issues/39#issuecomment-2002312548
+      - Because of this **don't change that value many times**, as any EEPROM has a lifespan based on writes and the *Max Charging Current* will make possible to control the Current for Charging
+
+- **Max Current (Offline/Device)**
+   - The value that are sent from the juicebox device indicating what will the offline charge current
+
+- **Max Current (Online/Wanted)**
+   - Control the Current that Juicebox provides to the vehicle when connected to server
+   - Can be used for example to control charging based on Solar Power generation
+      - As suggestion check for changes at 3-5 minutes intervals
+         - this give time for stabilizations on charging and energy generation
+         - this interval was tested with old ENEL X API integration and now with juicepassproxy responding to juicebox
+   - Putting 0 pauses the charging
+      - Pausing will reset the session energy value
+      - This may affect the lifespan of internal contactor if paused/restarted too many times
+   - Some cars can have different behaviours
+     - Bolt 2022 (Brazil) checks the Current at connection 
+         - if the value is less equal than 10 A it will consider that is using a portable charger and cannot accept Current changes greater than 10A later
+         - if the value is 0 A (Pause), it will show a charging error on dashboard but will start charging when value goes to 6A or over
+     
+- **Max Current (Online/Device)**
+   - The value that are sent from the juicebox device indicating what will the online charge current
+
+## Multiple JuiceBoxes
+- Multiple instances of JPP must be executed, one per JuiceBox.
+    - Each JPP instance should specify the following parameters in addition to the basic parameters.
+        - **--name** - each should use a different name, because this is the identifier of MQTT topic
+        - **--juicebox_id** - defining this disable the telnet and will start faster, must be the correct serial of each device
+        - **--local_port** - each needs to use their own port but make sure the UDP 8042 redirection rule matches the destination port
+        - **--config_loc** - each needs their own directory
+    - Future versions can be able to work with multiple devices : https://github.com/JuiceRescue/juicepassproxy/issues/102
+
+
+## Configuration file
+- You can configure initial state of mqtt entities :
+    - **ENTITY_initial_state** or **SERIAL_ENTITY_initial_state**
+    - **current_max_offline_set_initial_state** can be used for device that does not send current_max_offline value on status messages (v07 protocol)
+    

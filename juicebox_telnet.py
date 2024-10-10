@@ -7,7 +7,7 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class JuiceboxTelnet:
-    def __init__(self, host, port=2000, timeout=None, loglevel=None):
+    def __init__(self, host, port, timeout=None, loglevel=None):
         if loglevel is not None:
             _LOGGER.setLevel(loglevel)
         self.host = host

@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import socket
 import time
 
 from const import (
@@ -35,6 +36,30 @@ class JuiceboxUDPCUpdater:
         self._telnet = None
         self._error_count = 0
         self._error_timestamp_list = []
+
+    def _dest_matches_jpp(self, dest):
+        """Check if a UDPC stream destination resolves to the JPP host.
+
+        The Gecko OS stream destination may be a hostname (e.g.
+        ``dummy.voltie.us:8055``) rather than a raw IP.  When DNS rewrites
+        point that hostname to the proxy, a simple string-in check
+        (``self._jpp_host not in dest``) always fails, causing the updater
+        to needlessly close and reopen the stream every check cycle.
+
+        This method first tries the fast-path string match, then falls back
+        to resolving the hostname so that DNS-rewritten destinations are
+        recognised correctly.
+        """
+        if self._jpp_host in dest:
+            return True
+        hostname = dest.split(":")[0]
+        try:
+            resolved_ip = socket.getaddrinfo(hostname, None)[0][4][0]
+            _LOGGER.debug(f"Resolved {hostname} -> {resolved_ip}")
+            return resolved_ip == self._jpp_host
+        except (socket.gaierror, IndexError):
+            _LOGGER.warning(f"Failed to resolve {hostname}")
+            return False
 
     async def start(self):
         _LOGGER.info("Starting JuiceboxUDPCUpdater")
@@ -132,7 +157,7 @@ class JuiceboxUDPCUpdater:
             for i, connection in enumerate(connections):
                 if connection["type"] == "UDPC":
                     udpc_streams_to_close.update({int(connection["id"]): i})
-                    if self._jpp_host not in connection["dest"]:
+                    if not self._dest_matches_jpp(connection["dest"]):
                         udpc_stream_to_update = int(connection["id"])
             # _LOGGER.debug(f"udpc_streams_to_close: {udpc_streams_to_close}")
             if udpc_stream_to_update == 0 and len(udpc_streams_to_close) > 0:
@@ -145,9 +170,8 @@ class JuiceboxUDPCUpdater:
 
             if len(udpc_streams_to_close) == 0:
                 _LOGGER.info("UDPC IP not found, updating")
-            elif (
-                self._jpp_host
-                not in connections[udpc_streams_to_close[udpc_stream_to_update]]["dest"]
+            elif not self._dest_matches_jpp(
+                connections[udpc_streams_to_close[udpc_stream_to_update]]["dest"]
             ):
                 _LOGGER.info("UDPC IP incorrect, updating")
                 _LOGGER.debug(f"connections: {connections}")

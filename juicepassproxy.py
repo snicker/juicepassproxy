@@ -13,7 +13,7 @@ import dns
 from aiorun import run
 from const import (
     DAYS_TO_KEEP_LOGS,
-    DEFAULT_DEVICE_NAME,
+    DEFAULT_DEVICE_NAME_PREFIX,
     DEFAULT_ENELX_IP,
     DEFAULT_ENELX_PORT,
     DEFAULT_ENELX_SERVER,
@@ -33,7 +33,6 @@ from const import (
 )
 from ha_mqtt_discoverable import Settings
 from juicebox_mitm import JuiceboxMITM
-from juicebox_mqtthandler import JuiceboxMQTTHandler
 from juicebox_telnet import JuiceboxTelnet
 from juicebox_udpcupdater import JuiceboxUDPCUpdater
 from juicebox_config import JuiceboxConfig
@@ -152,31 +151,6 @@ async def get_enelx_server_port(juicebox_host, telnet_port, telnet_timeout=None)
     return None
 
 
-async def get_juicebox_id(juicebox_host, telnet_port, telnet_timeout=None):
-    try:
-        async with JuiceboxTelnet(
-            juicebox_host,
-            telnet_port,
-            loglevel=_LOGGER.getEffectiveLevel(),
-            timeout=telnet_timeout,
-        ) as tn:
-            juicebox_id = (await tn.get_variable("email.name_address")).decode("utf-8")
-            return juicebox_id
-    except TimeoutError as e:
-        _LOGGER.warning(
-            "Error in getting JuiceBox ID via Telnet. "
-            f"({e.__class__.__qualname__}: {e})"
-        )
-        return None
-    except ConnectionResetError as e:
-        _LOGGER.warning(
-            "Error in getting JuiceBox ID via Telnet. "
-            f"({e.__class__.__qualname__}: {e})"
-        )
-        return None
-    return None
-
-
 
 
 def ip_to_tuple(ip):
@@ -269,11 +243,11 @@ async def parse_args():
     )
 
     parser.add_argument(
-        "--name",
+        "--name-prefix",
         type=str,
-        default=DEFAULT_DEVICE_NAME,
-        help="Home Assistant Device Name (default: %(default)s)",
-        dest="device_name",
+        default=DEFAULT_DEVICE_NAME_PREFIX,
+        help="Home Assistant Device Name Prefix (default: %(default)s)",
+        dest="device_name_prefix",
     )
 
     parser.add_argument(
@@ -316,14 +290,6 @@ async def parse_args():
     )
 
     parser.add_argument(
-        "--juicebox_id",
-        type=str,
-        metavar="ID",
-        help="JuiceBox ID. If not defined, will obtain it automatically.",
-        dest="juicebox_id",
-    )
-
-    parser.add_argument(
         "--local_ip",
         "-s",
         "--src",
@@ -338,9 +304,9 @@ async def parse_args():
         "--local_port",
         dest="local_port",
         required=False,
-        type=int,
+        type=str,
         metavar="PORT",
-        help="Local Port for JPP to listen on.",
+        help="Local Port(s) for JPP to listen on (comma delimited for multiple ports).",
     )
 
     parser.add_argument(
@@ -404,6 +370,14 @@ async def main():
         )
         sys.exit(1)
 
+    if len(sys.argv) > 1 and args.local_port:
+        for port in args.local_port.split(','):
+            if not str.isdigit(port) or int(port) < 1024 or int(port) > 65535:
+                _LOGGER.error(
+                    f"Exiting: --local_port has a non-int port specified or may be outside of the allowed range of 1024-65535: {port}",
+                )
+                sys.exit(1)
+
     config = JuiceboxConfig(args.config_loc)
     await config.load()
 
@@ -450,29 +424,35 @@ async def main():
         )
         sys.exit(1)
 
+    local_addr = []
     if args.local_port:
-        local_port = args.local_port
+        local_ports = args.local_port.split(',')
     else:
-        local_port = enelx_port
+        local_ports = [enelx_port]
     if args.local_ip:
         if ":" in args.local_ip:
-            local_addr = ip_to_tuple(args.local_ip)
+            local_addr = local_addr.append(ip_to_tuple(args.local_ip))
         else:
-            local_addr = ip_to_tuple(f"{args.local_ip}:{local_port}")
+            for port in local_ports:
+                local_addr.append(ip_to_tuple(f"{args.local_ip}:{port}"))
     elif local_ip := await get_local_ip():
-        local_addr = ip_to_tuple(f"{local_ip}:{local_port}")
+        for port in local_ports:
+                local_addr.append(ip_to_tuple(f"{local_ip}:{port}"))
     else:
-        local_addr = ip_to_tuple(
-            f"{config.get('LOCAL_IP', config.get('SRC', DEFAULT_LOCAL_IP))}:"
-            f"{local_port}"
-        )
-    config.update_value("LOCAL_IP", local_addr[0])
-    _LOGGER.info(f"local_addr: {local_addr[0]}:{local_addr[1]}")
+        for port in local_ports:
+            local_addr.append(ip_to_tuple(
+                f"{config.get('LOCAL_IP', config.get('SRC', DEFAULT_LOCAL_IP))}:"
+                f"{port}"
+                )
+            )
+    config.update_value("LOCAL_IP", local_addr[0][0])
+    for addr in local_addr:
+        _LOGGER.info(f"local_addr: {addr[0]}:{addr[1]}")
 
     localhost_check = (
-        local_addr[0].startswith("0.")
-        or local_addr[0].startswith("127")
-        or "localhost" in local_addr[0]
+        local_addr[0][0].startswith("0.")
+        or local_addr[0][0].startswith("127")
+        or "localhost" in local_addr[0][0]
     )
     if args.update_udpc and localhost_check and not args.jpp_host:
         _LOGGER.error(
@@ -497,21 +477,6 @@ async def main():
     _LOGGER.info(f"enelx_addr: {enelx_addr[0]}:{enelx_addr[1]}")
     _LOGGER.info(f"telnet_addr: {args.juicebox_host}:{args.telnet_port}")
 
-    if juicebox_id := args.juicebox_id:
-        pass
-    elif juicebox_id := await get_juicebox_id(
-        args.juicebox_host, args.telnet_port, telnet_timeout=telnet_timeout
-    ):
-        pass
-    else:
-        juicebox_id = config.get("JUICEBOX_ID", None)
-    if juicebox_id:
-        config.update_value("JUICEBOX_ID", juicebox_id)
-        _LOGGER.info(f"juicebox_id: {juicebox_id}")
-    else:
-        _LOGGER.error(
-            "Cannot get JuiceBox ID from Telnet and not in Config. If a JuiceBox ID is later set or is obtained via Telnet, it will likely create a new JuiceBox Device with new Entities in Home Assistant."
-        )
 
     experimental = args.experimental
     _LOGGER.info(f"experimental: {experimental}")
@@ -537,43 +502,34 @@ async def main():
         jpp_loop_count += 1
         jpp_task_list = []
         udpc_updater = None
-        mqtt_handler = JuiceboxMQTTHandler(
-            mqtt_settings=mqtt_settings,
-            device_name=args.device_name,
-            juicebox_id=juicebox_id,
-            config=config,
-            experimental=experimental,
-            loglevel=_LOGGER.getEffectiveLevel(),
-        )
-        jpp_task_list.append(
-            asyncio.create_task(mqtt_handler.start(), name="mqtt_handler")
-        )
+        mitm_handlers = []
 
-        mitm_handler = JuiceboxMITM(
-            jpp_addr=local_addr,  # Local/Docker IP
-            enelx_addr=enelx_addr,  # EnelX IP
-            ignore_enelx=ignore_enelx,
-            loglevel=_LOGGER.getEffectiveLevel(),
-            # windows users are having trouble with reuse_port=True
-            # TODO find a safe way to detect windows and change the default value
-            reuse_port=config.get("reuse_port", not args.disable_reuse_port), 
-        )
-        await mitm_handler.set_local_mitm_handler(mqtt_handler.local_mitm_handler)
-        await mitm_handler.set_remote_mitm_handler(mqtt_handler.remote_mitm_handler)
-        jpp_task_list.append(
-            asyncio.create_task(mitm_handler.start(), name="mitm_handler")
-        )
-
-        await mqtt_handler.set_mitm_handler(mitm_handler)
-        await mitm_handler.set_mqtt_handler(mqtt_handler)
+        for addr in local_addr:
+            mitm_handler = JuiceboxMITM(
+                jpp_addr=addr,  # Local/Docker IP
+                device_name_prefix=args.device_name_prefix,
+                enelx_addr=enelx_addr,  # EnelX IP
+                ignore_enelx=ignore_enelx,
+                mqtt_settings=mqtt_settings,
+                loglevel=_LOGGER.getEffectiveLevel(),
+                # windows users are having trouble with reuse_port=True
+                # TODO find a safe way to detect windows and change the default value
+                reuse_port=config.get("reuse_port", not args.disable_reuse_port),
+                config=config,
+                experimental=experimental
+            )
+            jpp_task_list.append(
+                asyncio.create_task(mitm_handler.start(), name=f"mitm_handler:{addr[1]}")
+            )
+            mitm_handlers.append(mitm_handler)
 
         if args.update_udpc:
-            jpp_host = args.jpp_host or local_addr[0]
+            jpp_host = args.jpp_host or local_addr[0][0]
             udpc_updater = JuiceboxUDPCUpdater(
                 juicebox_host=args.juicebox_host,
                 jpp_host=jpp_host,
                 telnet_port=telnet_port,
-                udpc_port=local_addr[1],
+                udpc_port=local_addr[0][1],
                 telnet_timeout=telnet_timeout,
                 loglevel=_LOGGER.getEffectiveLevel(),
             )
@@ -589,10 +545,9 @@ async def main():
             _LOGGER.exception(
                 f"A JuicePass Proxy task failed: {e.__class__.__qualname__}: {e}"
             )
-            await mqtt_handler.close()
-            await mitm_handler.close()
-            del mqtt_handler
-            del mitm_handler
+            for mitm_handler in mitm_handlers:
+                await mitm_handler.close()
+                del mitm_handler
             if udpc_updater is not None:
                 await udpc_updater.close()
                 del udpc_updater

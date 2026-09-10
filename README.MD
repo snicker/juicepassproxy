@@ -114,15 +114,13 @@ Variable | Required | Description & Default |
 
 Variable | Required | Description & Default |
 -- | -- | --
-**DEVICE_NAME** | No | JuiceBox
-**DEBUG** | No | false
+**DEVICE_NAME_PREFIX** | No | JuiceBox**DEBUG** | No | false
 **EXPERIMENTAL**  | No  | Default: false. Enables additional entities in Home Assistant that are in in development or can be used toward developing the ability to send commands to a JuiceBox
 **IGNORE_ENELX**  | No  | Default: false. If true, will not send commands received from EnelX to the JuiceBox nor send outgoing information from the JuiceBox to
 EnelX, to use local control this option should be true
 **TELNET_TIMEOUT**  | No  | Default: 30. Timeout in seconds for telnet operations.
-**JUICEBOX_ID**  | No | If not defined, will attempt to get the JuiceBox ID using telnet, don't use this if you are testing multiple devices.
 **LOCAL_IP**<br><br>_Deprecated Variable: SRC_ | No | If not defined, will attempt to get the Local Docker IP. Can optionally define port (ex. 127.0.0.1:8047). If unsuccessful, will default to 127.0.0.1.
-**LOCAL_PORT** | No | Local port for JuicePass Proxy to listen on. If not defined, will use the EnelX Port.
+**LOCAL_PORT** | No | Local port(s) for JuicePass Proxy to listen on. Comma delimited without spaces. If not defined, will use the EnelX Port.
 **ENELX_IP**<br><br>_Deprecated Variable: DST_ | No | If not defined, will attempt to get the IP of the EnelX Server. If unsuccessful, will default to 54.161.185.130. Can optionally define port (ex. 54.161.185.130:8047). If defined, only use the IP address of the EnelX Server and not the fully qualified domain name to avoid DNS lookup loops.
 </details>
 
@@ -161,8 +159,7 @@ options:
   --config_loc LOC      The location to store the config file (default:
                         ~/.juicepassproxy)
   --log_loc LOC         The location to store the log files (default: ~)
-  --name DEVICE_NAME    Home Assistant Device Name (default: JuiceBox)
-  --debug               Show Debug level logging. (default: Info)
+  --name-prefix DEVICE_NAME_PREFIX    Home Assistant Device Name Prefix (default: JuiceBox)  --debug               Show Debug level logging. (default: Info)
   --experimental        Enables additional entities in Home Assistant that are
                         in in development or can be used toward developing the
                         ability to send commands to a JuiceBox.
@@ -173,12 +170,12 @@ options:
                         Telnet PORT (default: 2000)
   --telnet_timeout SECONDS
                         Timeout in seconds for Telnet operations (default: 30)
-  --juicebox_id ID      JuiceBox ID. If not defined, will obtain it
-                        automatically.
   --local_ip IP         Local IP (and optional port). If not defined, will
                         obtain it automatically. (Ex. 127.0.0.1:8047)
                         [Deprecated: -s --src]
-  --local_port PORT     Local Port for JPP to listen on.
+  --local_port PORT     Local Port(s) for JPP to listen on (default: 8047)
+                        Multiple ports may be specified (comma delimited without spaces).
+                        Port range: 1024-65535
   --enelx_ip IP         Destination IP (and optional port) of EnelX Server. If
                         not defined, --juicebox_host required and then will
                         obtain it automatically. (Ex. 54.161.185.130:8047)
@@ -272,14 +269,25 @@ As of November, 2023: `juicenet-udp-prod3-usa.enelx.com` = `54.161.185.130`.
    - the Juicebox device reset this value when car changes from **Charging** to **Plugged In** State
 
 ## Multiple JuiceBoxes
-- Multiple instances of JPP must be executed, one per JuiceBox.
-    - Each JPP instance should specify the following parameters in addition to the basic parameters.
-        - **--name** - each should use a different name, because this is the identifier of MQTT topic
-        - **--juicebox_id** - defining this disable the telnet and will start faster, must be the correct serial of each device
-        - **--local_port** - each needs to use their own port but make sure the UDP 8042 redirection rule matches the destination port
-        - **--config_loc** - each needs their own directory
-    - Future versions can be able to work with multiple devices : https://github.com/JuiceRescue/juicepassproxy/issues/102
+- Supported
+    - Requires router UDP traffic redirect for multiple JuiceBox support.
+    - UPDATE_UPDC only supports one juicebox_host at this time.
+    - Not Supported: Remote EnelX server commands (pending further development for the remote_mitm_handler)
+      - Data should still be relayed to EnelX servers (when ignore_enelx is false)
+    - Devices are given a default homeassistant device name of {DEVICE_NAME_PREFIX}-######## using the last 8 digits of the juicebox_id (serial number).
+      - To customize the device names, it is recommend to customize the yaml configuration file **before** first startup (~/juicepassproxy/juicepassproxy.yaml)
 
+Default Device Names (example)
+```yaml
+0000000000000000000000000000_name: JuiceBox-00000000
+0000000000000000000000000001_name: JuiceBox-00000001
+```
+
+Custom Device Names (example)
+```yaml
+0000000000000000000000000000_name: CustomDeviceName1
+0000000000000000000000000001_name: CustomDeviceName2
+```
 
 ## Configuration file
 - You can configure initial state of mqtt entities :

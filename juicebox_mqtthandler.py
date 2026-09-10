@@ -26,6 +26,7 @@ class JuiceboxMQTTEntity:
         self.attributes = {}
         self._mqtt = None
         self._loop = asyncio.get_running_loop()
+        self._device = None
         # self.entity_type  # Each use of this class to create a child class needs to set this variable in __init__
         # self._set_func  # Each use of this class to create a child class needs to set this variable in __init__
 
@@ -122,9 +123,11 @@ class JuiceboxMQTTSendingEntity(JuiceboxMQTTEntity):
         name,
         **kwargs,
     ):
-        # _LOGGER.debug(f"SendingEntity Init: {name}")
+        _LOGGER.debug(f"SendingEntity Init: {name}")
         super().__init__(name, **kwargs)
         self.command_timestamp = None
+        self._mitm_handler = None
+        self._device = None
 
     async def start(self):
         entity_info_keys = getattr(
@@ -170,12 +173,12 @@ class JuiceboxMQTTSendingEntity(JuiceboxMQTTEntity):
         if self._mitm_handler:
             if user_data == 'RAW':
                 _LOGGER.debug(f"Sending to MITM: {state}")
-                await self._mitm_handler.send_data_to_juicebox(state.encode("utf-8"))
+                await self._mitm_handler.send_data_to_juicebox(self._device, state.encode("utf-8"))
             else:
                 # Internal state must be set before sending message to juicebox
                 await self.set(state)
                 self.command_timestamp = time.time()
-                await self._mitm_handler.send_cmd_message_to_juicebox(new_values=True)
+                await self._mitm_handler.send_cmd_message_to_juicebox(self._device, new_values=True)
         else:
             if self._add_error is not None:
                 await self._add_error()
@@ -184,6 +187,11 @@ class JuiceboxMQTTSendingEntity(JuiceboxMQTTEntity):
             )
         await self.set(state)
 
+    async def set_device(self, device):
+        # _LOGGER.info("Setting _device")
+        if device is None:
+            _LOGGER.warning("device parameter is None")
+        self._device = device
 
 class JuiceboxMQTTSensor(JuiceboxMQTTEntity):
     def __init__(
@@ -264,6 +272,8 @@ class JuiceboxMQTTHandler:
         self._experimental = experimental
         self._config = config
         self._mitm_handler = mitm_handler
+        self._device = None
+        self._device_name = device_name
         # Try to use first the MAX_CURRENT as maximum, if not found use the previous run current_rating or default of 48 which is safe and not so big
         self._max_current = config.get_device(self._juicebox_id, "MAX_CURRENT", config.get_device(self._juicebox_id, "current_rating", 48))
         _LOGGER.info(f"max_current: {self._max_current}")
@@ -451,6 +461,16 @@ class JuiceboxMQTTHandler:
 
     def get_entity(self, name):
         return self._entities[name]
+
+    def is_mqtt_numeric_entity_defined(self, entity_name):
+        entity = self.get_entity(entity_name)
+
+        # TODO: not clear why sometimes "0" came at this point as string instead of numeric
+        # Using same way on HA dashboard sometimes came 0.0 float and sometimes "0" str
+        _LOGGER.debug(f"is_mqtt_entity_defined {entity_name} {entity} {entity.state}")
+        defined = entity and (isinstance(entity.state, int | float) or (isinstance(entity.state, str) and entity.state.isnumeric()))
+
+        return defined
         
     async def start(self):
         _LOGGER.info("Starting JuiceboxMQTTHandler")
@@ -468,11 +488,15 @@ class JuiceboxMQTTHandler:
         for entity in self._entities.values():
             await entity.close()
 
-    async def set_mitm_handler(self, mitm_handler):
-        self._mitm_handler = mitm_handler
+    async def set_device(self, device):
+        _LOGGER.info("Setting _device")
+        if device is None:
+            _LOGGER.warning("device parameter is None")
+        self._device = device
         for entity in self._entities.values():
-            if entity.entity_type in MQTT_SENDING_ENTITIES:
-                entity.add_kwargs(mitm_handler=mitm_handler)
+            if isinstance(entity, JuiceboxMQTTSendingEntity):
+                _LOGGER.info(f"Setting device on entity {entity.name}")
+                await entity.set_device(device)
 
     async def _udp_mitm_oserror_message_parse(self, data):
         message = {"type": "udp_mitm_oserror"}

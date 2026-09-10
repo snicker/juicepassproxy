@@ -14,17 +14,13 @@ echo ""
 
 JPP_STRING="python3 ${JUICEPASSPROXY}"
 logger INFO "Docker Environment Variables:"
-if [[ ! -z "${DEVICE_NAME}" ]]; then
-  logger INFO "DEVICE_NAME: ${DEVICE_NAME}"
-  JPP_STRING+=" --name ${DEVICE_NAME}"
+if [[ ! -z "${DEVICE_NAME_PREFIX}" ]]; then
+  logger INFO "DEVICE_NAME_PREFIX: ${DEVICE_NAME_PREFIX}"
+  JPP_STRING+=" --name-prefix ${DEVICE_NAME_PREFIX}"
 fi
 if [[ ! -z "${JUICEBOX_HOST}" ]]; then
   logger INFO "JUICEBOX_HOST: ${JUICEBOX_HOST}"
   JPP_STRING+=" --juicebox_host ${JUICEBOX_HOST}"
-fi
-if [[ ! -z "${JUICEBOX_ID}" ]]; then
-  logger INFO "JUICEBOX_ID: ${JUICEBOX_ID}"
-  JPP_STRING+=" --juicebox_id ${JUICEBOX_ID}"
 fi
 if [[ ! -z "${LOCAL_IP}" ]]; then
   logger INFO "LOCAL_IP: ${LOCAL_IP}"

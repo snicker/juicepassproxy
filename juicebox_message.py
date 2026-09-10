@@ -490,11 +490,12 @@ class JuiceboxCommand(JuiceboxMessage):
         if "C" in self.values:
             self.command = int(self.values["C"])
             self.values.pop("C")
+        # Must match build_payload() : A is the instant amperage, M the offline one
         if "A" in self.values:
-            self.offline_amperage = int(self.values["A"])
+            self.instant_amperage = int(self.values["A"])
             self.values.pop("A")
         if "M" in self.values:
-            self.instant_amperage = int(self.values["M"])
+            self.offline_amperage = int(self.values["M"])
             self.values.pop("M")
         if "S" in self.values:
             self.counter = int(self.values["S"])

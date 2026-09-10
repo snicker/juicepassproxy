@@ -77,6 +77,47 @@ class TestMessage(unittest.TestCase):
         self.assertEqual(m.get_value("DOW"), "4")
         self.assertEqual(m.get_value("HHMM"), "1325")
 
+        # A is the instant amperage, M the offline one - same as build_payload()
+        self.assertEqual(m.instant_amperage, 40)
+        self.assertEqual(m.offline_amperage, 40)
+        self.assertEqual(m.command, 6)
+        self.assertEqual(m.counter, 638)
+
+
+    def do_test_command_message_parsing_amperages(self, raw_msg, instant_amperage, offline_amperage):
+        m = juicebox_message_from_string(raw_msg)
+        self.assertEqual(m.instant_amperage, instant_amperage)
+        self.assertEqual(m.offline_amperage, offline_amperage)
+        # a message rebuilt from the parsed values must be identical to the received one
+        self.assertEqual(m.build(), raw_msg)
+
+
+    def test_command_message_parsing_amperages(self):
+        """
+        Parsing must map A/M to the same attributes that build_payload() writes them from,
+        so it can only be checked with different values on each field
+        """
+        # same messages used by test_message_building : instant=20, offline=16
+        self.do_test_command_message_parsing_amperages("CMD52324A20M16C006S001!5RE$", 20, 16)
+        self.do_test_command_message_parsing_amperages("CMD52324A0020M016C006S001!YUK$", 20, 16)
+        # captured messages
+        self.do_test_command_message_parsing_amperages("CMD62210A20M18C006S006!31Y$", 20, 18)
+        self.do_test_command_message_parsing_amperages("CMD31353A0000M010C244S741!2B3$", 0, 10)
+
+
+    def test_command_message_parsing_and_rebuilding(self):
+        """
+        A command built from a parsed one must keep its amperages and increment the counter
+        """
+        m = juicebox_message_from_string("CMD62210A20M18C006S006!31Y$")
+        new = JuiceboxCommand(previous=m)
+        new.time = datetime.datetime(2012, 3, 23, 23, 24, 55, 173504)
+        self.assertEqual(new.instant_amperage, 20)
+        self.assertEqual(new.offline_amperage, 18)
+        self.assertEqual(new.counter, 7)
+        self.assertEqual(new.build(), "CMD52324A20M18C006S007!SVL$")
+        self.assertEqual(new.crc_str, new.crc_computed())
+
 
 
     def test_status_message_parsing(self):

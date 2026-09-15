@@ -101,6 +101,10 @@ if [[ -v EXPERIMENTAL ]] && $EXPERIMENTAL; then
 else
   logger INFO "EXPERIMENTAL: false"
 fi
+if [[ ! -z "${CRON_REBOOT_SCHEDULE}" ]]; then
+  logger INFO "CRON_REBOOT_SCHEDULE: ${CRON_REBOOT_SCHEDULE}"
+  JPP_STRING+=" --cron_reboot_schedule \"${CRON_REBOOT_SCHEDULE}\""
+fi
 
-logger DEBUG "COMMAND: $(echo ${JPP_STRING} | sed -E 's/(.* --mqtt_password )([\"]?[a-zA-Z0-9_\?\*\^\&\#\@\!]+[\"]?)/\1*****/g')"
-exec ${JPP_STRING}
+logger DEBUG "COMMAND: $(echo "${JPP_STRING}" | sed -E 's/(.* --mqtt_password )([\"]?[a-zA-Z0-9_\?\*\^\&\#\@\!]+[\"]?)/\1*****/g')"
+exec bash -c "${JPP_STRING}"

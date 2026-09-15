@@ -11,53 +11,56 @@ Builds upon work by lovely folks in this issue: https://github.com/home-assistan
 ## Docker Compose Installation
 
 ### Features
-*  If `JUICEBOX_HOST` is defined, it will run a telnet script to get the EnelX Server and Port as well as the JuiceBox ID.
 
-*  If `ENELX_IP` is not defined, it will use the CloudFlare DNS (1.1.1.1) to get the IP address of the EnelX Server and avoid a DNS lookup loop.
+- If `JUICEBOX_HOST` is defined, it will run a telnet script to get the EnelX Server and Port as well as the JuiceBox ID.
 
-*  If `LOCAL_IP` is not defined, it will lookup the Local IP address of the Docker.
+- If `ENELX_IP` is not defined, it will use the CloudFlare DNS (1.1.1.1) to get the IP address of the EnelX Server and avoid a DNS lookup loop.
 
-* If `UPDATE_UDPC` is true, JuicePass Proxy will continually update the JuiceBox via telnet to send its data to JuicePass Proxy. Use this if you are not able to change your DNS to route the JuiceBox traffic to JuicePass Proxy.
+- If `LOCAL_IP` is not defined, it will lookup the Local IP address of the Docker.
+
+- If `UPDATE_UDPC` is true, JuicePass Proxy will continually update the JuiceBox via telnet to send its data to JuicePass Proxy. Use this if you are not able to change your DNS to route the JuiceBox traffic to JuicePass Proxy.
+
+- If `CRON_REBOOT_SCHEDULE` is set, the JuiceBox will automatically reboot at the specified cron schedule. This can be useful for ensuring the JuiceBox remains stable over long periods of time. The format follows standard cron syntax. For example, to reboot every day at midnight, set `CRON_REBOOT_SCHEDULE` to `0 0 * * *`.
 
 ### Instructions
 
 1. Pick One Option:
 
-    A. Configure your DNS server running on your network (like Pi-hole or your router) to route all UDP traffic from your JuiceBox to the machine running this proxy. Instructions for how to do this will vary by router. See [Getting EnelX Server IPs](#getting-enelx-server-ips) for instructions on what EnelX Server you need to override.
+   A. Configure your DNS server running on your network (like Pi-hole or your router) to route all UDP traffic from your JuiceBox to the machine running this proxy. Instructions for how to do this will vary by router. See [Getting EnelX Server IPs](#getting-enelx-server-ips) for instructions on what EnelX Server you need to override.
 
-    B. Set these Docker Environment Variables in your Docker Compose file:</br>
+   B. Set these Docker Environment Variables in your Docker Compose file:</br>
 
-      ```
-      UPDATE_UDPC=true
-      JUICEBOX_HOST=<IP address of your JuiceBox>
-      JPP_HOST=<IP address of the machine that the JuicePass Proxy Docker Container is running on>
-      ```
+   ```
+   UPDATE_UDPC=true
+   JUICEBOX_HOST=<IP address of your JuiceBox>
+   JPP_HOST=<IP address of the machine that the JuicePass Proxy Docker Container is running on>
+   ```
 
-    C. Use your router to redirect traffic from JuiceBox to JuicePass Proxy
+   C. Use your router to redirect traffic from JuiceBox to JuicePass Proxy
 
-      *  Check the port that your JuiceBox is using to communicate. See [Getting EnelX Server IPs](#getting-enelx-server-ips)
+   - Check the port that your JuiceBox is using to communicate. See [Getting EnelX Server IPs](#getting-enelx-server-ips)
 
-      *  Create a redirect rule on your router redirect UDP traffic coming from JuiceBox to the IP:PORT where you are running JuicePass Proxy
+   - Create a redirect rule on your router redirect UDP traffic coming from JuiceBox to the IP:PORT where you are running JuicePass Proxy
 
-      *  Create a masquerade rule on router to masquerade the traffic that goes to JuicePass Proxy IP:PORT (hairpin nat)
+   - Create a masquerade rule on router to masquerade the traffic that goes to JuicePass Proxy IP:PORT (hairpin nat)
 
-      *  Depending of your forward rules, you may need to create an extra rule to allow that forwarding traffic
+   - Depending of your forward rules, you may need to create an extra rule to allow that forwarding traffic
 
-      *  Sample MikroTik rules for reference (10.1.12.230 = JuiceBox, 10.1.0.22 = JuicePass Proxy)</br>
+   - Sample MikroTik rules for reference (10.1.12.230 = JuiceBox, 10.1.0.22 = JuicePass Proxy)</br>
 
-      ```
-      add action=dst-nat chain=dstnat comment=juicebox dst-port=8042 protocol=udp src-address=10.1.12.230 to-addresses=10.1.0.22 to-ports=8042
-      #
-      add action=masquerade chain=srcnat comment=juicebox dst-address=10.1.0.22 dst-port=8042 protocol=udp src-address=10.1.12.230
-      ```
+   ```
+   add action=dst-nat chain=dstnat comment=juicebox dst-port=8042 protocol=udp src-address=10.1.12.230 to-addresses=10.1.0.22 to-ports=8042
+   #
+   add action=masquerade chain=srcnat comment=juicebox dst-address=10.1.0.22 dst-port=8042 protocol=udp src-address=10.1.12.230
+   ```
 
 1. Add the `juicepassproxy` container to your Docker Compose file.
 
-    A.  Set `ports:` to the port listed in the UDCP line, likely `8047` _(see [Getting EnelX Server IPs](#getting-enelx-server-ips))_.
+   A. Set `ports:` to the port listed in the UDCP line, likely `8047` _(see [Getting EnelX Server IPs](#getting-enelx-server-ips))_.
 
-    B. Define the applicable environment variables _(see [Docker Environment Variables](#docker-environment-variables))_.
+   B. Define the applicable environment variables _(see [Docker Environment Variables](#docker-environment-variables))_.
 
-    C. Specify the location for the config and optionally the logs folder
+   C. Specify the location for the config and optionally the logs folder
 
 1. Start the Docker container.
 
@@ -88,6 +91,7 @@ services:
       - MQTT_HOST=10.100.200.5
       - MQTT_USER=mosquitto
       - MQTT_PASS=***
+      - CRON_REBOOT_SCHEDULE=45 2 * * *
     volumes:
       - /etc/localtime:/etc/localtime:ro
       - ./config:/config
@@ -96,34 +100,37 @@ services:
 
 ### Docker Environment Variables
 
-Variable | Required | Description & Default |
--- | -- | --
-**JUICEBOX_HOST** | **Recommended**</br></br>**Required if Update UDPC is True.** | If defined, will attempt to get the EnelX Server Name, IP, and Port using telnet.
-**UPDATE_UDPC** | No | Default: false. If true, will continually update the JuiceBox via telnet to point to JuicePass Proxy.
-**TELNET_TIMEOUT** | No | Default: 30. Timeout in seconds for telnet operations.
-**JPP_HOST**  | **Required if Update UDPC is True** |  This is the IP or Hostname of the machine where JuicePass Proxy is running (**not** the IP of the Docker Container)
-**MQTT_HOST** | No | 127.0.0.1
-**MQTT_PORT** | No | 1883
-**MQTT_USER** | No |
-**MQTT_PASS** | No |
-**MQTT_DISCOVERY_PREFIX** | No | homeassistant
-**LOG_LOC** | No | /log (use **none** to disable log to file)
+| Variable                  | Required                                                      | Description & Default                                                                                                                                                                                                                                                                                       |
+| ------------------------- | ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **JUICEBOX_HOST**         | **Recommended**</br></br>**Required if Update UDPC is True.** | If defined, will attempt to get the EnelX Server Name, IP, and Port using telnet.                                                                                                                                                                                                                           |
+| **UPDATE_UDPC**           | No                                                            | Default: false. If true, will continually update the JuiceBox via telnet to point to JuicePass Proxy.                                                                                                                                                                                                       |
+| **CRON_REBOOT_SCHEDULE**  | No                                                            | If defined, the JuiceBox will automatically reboot at the specified cron schedule. This can be useful for ensuring the JuiceBox remains stable over long periods of time. The format follows standard cron syntax. For example, to reboot every day at midnight, set `CRON_REBOOT_SCHEDULE` to `0 0 * * *`. |
+| **TELNET_TIMEOUT**        | No                                                            | Default: 30. Timeout in seconds for telnet operations.                                                                                                                                                                                                                                                      |
+| **JPP_HOST**              | **Required if Update UDPC is True**                           | This is the IP or Hostname of the machine where JuicePass Proxy is running (**not** the IP of the Docker Container)                                                                                                                                                                                         |
+| **MQTT_HOST**             | No                                                            | 127.0.0.1                                                                                                                                                                                                                                                                                                   |
+| **MQTT_PORT**             | No                                                            | 1883                                                                                                                                                                                                                                                                                                        |
+| **MQTT_USER**             | No                                                            |
+| **MQTT_PASS**             | No                                                            |
+| **MQTT_DISCOVERY_PREFIX** | No                                                            | homeassistant                                                                                                                                                                                                                                                                                               |
+| **LOG_LOC**               | No                                                            | /log (use **none** to disable log to file)                                                                                                                                                                                                                                                                  |
 
 <details>
 <summary><h3>Less Common Docker Environment Variables</h3></summary>
 
-Variable | Required | Description & Default |
--- | -- | --
-**DEVICE_NAME** | No | JuiceBox
-**DEBUG** | No | false
-**EXPERIMENTAL**  | No  | Default: false. Enables additional entities in Home Assistant that are in in development or can be used toward developing the ability to send commands to a JuiceBox
-**IGNORE_ENELX**  | No  | Default: false. If true, will not send commands received from EnelX to the JuiceBox nor send outgoing information from the JuiceBox to
+| Variable         | Required | Description & Default                                                                                                                                                |
+| ---------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **DEVICE_NAME**  | No       | JuiceBox                                                                                                                                                             |
+| **DEBUG**        | No       | false                                                                                                                                                                |
+| **EXPERIMENTAL** | No       | Default: false. Enables additional entities in Home Assistant that are in in development or can be used toward developing the ability to send commands to a JuiceBox |
+| **IGNORE_ENELX** | No       | Default: false. If true, will not send commands received from EnelX to the JuiceBox nor send outgoing information from the JuiceBox to                               |
+
 EnelX, to use local control this option should be true
-**TELNET_TIMEOUT**  | No  | Default: 30. Timeout in seconds for telnet operations.
-**JUICEBOX_ID**  | No | If not defined, will attempt to get the JuiceBox ID using telnet, don't use this if you are testing multiple devices.
+**TELNET_TIMEOUT** | No | Default: 30. Timeout in seconds for telnet operations.
+**JUICEBOX_ID** | No | If not defined, will attempt to get the JuiceBox ID using telnet, don't use this if you are testing multiple devices.
 **LOCAL_IP**<br><br>_Deprecated Variable: SRC_ | No | If not defined, will attempt to get the Local Docker IP. Can optionally define port (ex. 127.0.0.1:8047). If unsuccessful, will default to 127.0.0.1.
 **LOCAL_PORT** | No | Local port for JuicePass Proxy to listen on. If not defined, will use the EnelX Port.
 **ENELX_IP**<br><br>_Deprecated Variable: DST_ | No | If not defined, will attempt to get the IP of the EnelX Server. If unsuccessful, will default to 54.161.185.130. Can optionally define port (ex. 54.161.185.130:8047). If defined, only use the IP address of the EnelX Server and not the fully qualified domain name to avoid DNS lookup loops.
+
 </details>
 
 <details>
@@ -145,6 +152,8 @@ options:
   --juicebox_host HOST  Host or IP address of the JuiceBox. Required for
                         --update_udpc or if --enelx_ip not defined.
   --update_udpc         Update UDPC on the JuiceBox. Requires --juicebox_host
+  --cron_reboot_schedule SCHEDULE
+                        Specify the cron schedule for automatic reboots of the JuiceBox. This can help maintain stability over long periods. The format follows standard cron syntax. For example, to reboot every day at midnight, set `--cron_reboot_schedule` to `0 0 * * *`.
   --jpp_host, --juicepass_proxy_host HOST
                         EXTERNAL host or IP address of the machine running
                         JuicePass Proxy. Optional: only necessary when using
@@ -204,7 +213,8 @@ list
 # 1 UDPC  juicenet-udp-prod3-usa.enelx.com:8047 (26674)
 ```
 
-The address is in the `UDPC` line. Run, `ping`, `nslookup`, or similar command to determine the IP.  The following [network_lookup](https://docs.silabs.com/gecko-os/4/standard/4.2/cmd/commands#network-lookup) command can be run in JuiceBox telnet to look it up while still connected:
+The address is in the `UDPC` line. Run, `ping`, `nslookup`, or similar command to determine the IP. The following [network_lookup](https://docs.silabs.com/gecko-os/4/standard/4.2/cmd/commands#network-lookup) command can be run in JuiceBox telnet to look it up while still connected:
+
 ```
 network_lookup juicenet-udp-prod3-usa.enelx.com
 54.161.185.130
@@ -215,80 +225,86 @@ network_lookup jvb1.emotorwerks.com
 As of November, 2023: `juicenet-udp-prod3-usa.enelx.com` = `54.161.185.130`.
 
 ## Important information
+
 - This proxy is made using effort from owners that found information and made packet capture to reverse enginner the protocol used by the devices
 - There are many different firmware versions found
-    - some accept telnet, some others not 
+  - some accept telnet, some others not
 - Different protocol versions are found
 - We cannot assure that this will work will all versions
 - If this does not work with your device you must provide :
-    - logs (and if possible packet captures) with messages that are send to/from your device
-    - docker enviroment configuration used or juicepassproxy command line parameters
-    - if your device still works with ENELX servers but not with juicepass :
-        - a packet capture will provide usefull information to understand what are the differences that are not being considered yet
+  - logs (and if possible packet captures) with messages that are send to/from your device
+  - docker enviroment configuration used or juicepassproxy command line parameters
+  - if your device still works with ENELX servers but not with juicepass :
+    - a packet capture will provide usefull information to understand what are the differences that are not being considered yet
 - Sometimes it takes a while to stabilize, if you are changing between ENEL X and JPP let it running for some minutes before testing
 
 ## juicepassproxy important behaviours to understand
+
 - For devices that uses the protocol version v07 the juicepassproxy will only start talking with device after 6 minutes to make sure it gets the correct offline current in the device.
-- when defining the MQTT entities that are show on homeassistant  juicepassproxy will define a max_current value, on the first time it starts it will use 48A for this value, after receiving the device rating the value will be stored on configuration and at next start will be used as maximum to allow the correct range on homeassistant
+- when defining the MQTT entities that are show on homeassistant juicepassproxy will define a max_current value, on the first time it starts it will use 48A for this value, after receiving the device rating the value will be stored on configuration and at next start will be used as maximum to allow the correct range on homeassistant
 
 ## Controlling Charging current
 
 - **Max Current (Offline/Wanted)**
-   - Control maximum current that device will charge when offline (not connected to juicebox or Enel X)
-      - 2024-06 tested on device which send protocol v09u it changes **Max Charging Current** to this value around 5 minutes after not receiving messages from proxy
-   - Stored on EEPROM - https://github.com/JuiceRescue/juicepassproxy/issues/39#issuecomment-2002312548
-      - Because of this **don't change that value many times**, as any EEPROM has a lifespan based on writes and the *Max Charging Current* will make possible to control the Current for Charging
+
+  - Control maximum current that device will charge when offline (not connected to juicebox or Enel X)
+    - 2024-06 tested on device which send protocol v09u it changes **Max Charging Current** to this value around 5 minutes after not receiving messages from proxy
+  - Stored on EEPROM - https://github.com/JuiceRescue/juicepassproxy/issues/39#issuecomment-2002312548
+    - Because of this **don't change that value many times**, as any EEPROM has a lifespan based on writes and the _Max Charging Current_ will make possible to control the Current for Charging
 
 - **Max Current (Offline/Device)**
-   - The value that are sent from the juicebox device indicating what will the offline charge current
+
+  - The value that are sent from the juicebox device indicating what will the offline charge current
 
 - **Max Current (Online/Wanted)**
-   - Control the Current that Juicebox provides to the vehicle when connected to server
-   - Can be used for example to control charging based on Solar Power generation
-      - As suggestion check for changes at 3-5 minutes intervals
-         - this give time for stabilizations on charging and energy generation
-         - this interval was tested with old ENEL X API integration and now with juicepassproxy responding to juicebox
-   - Putting 0 pauses the charging
-      - Pausing will reset the session energy value
-      - This may affect the lifespan of internal contactor if paused/restarted too many times
-   - Some cars can have different behaviours
-     - Bolt 2022 (Brazil) checks the Current at connection 
-         - if the value is less equal than 10 A it will consider that is using a portable charger and cannot accept Current changes greater than 10A later
-         - if the value is 0 A (Pause), it will show a charging error on dashboard but will start charging when value goes to 6A or over
-     
+  - Control the Current that Juicebox provides to the vehicle when connected to server
+  - Can be used for example to control charging based on Solar Power generation
+    - As suggestion check for changes at 3-5 minutes intervals
+      - this give time for stabilizations on charging and energy generation
+      - this interval was tested with old ENEL X API integration and now with juicepassproxy responding to juicebox
+  - Putting 0 pauses the charging
+    - Pausing will reset the session energy value
+    - This may affect the lifespan of internal contactor if paused/restarted too many times
+  - Some cars can have different behaviours
+    - Bolt 2022 (Brazil) checks the Current at connection
+      - if the value is less equal than 10 A it will consider that is using a portable charger and cannot accept Current changes greater than 10A later
+      - if the value is 0 A (Pause), it will show a charging error on dashboard but will start charging when value goes to 6A or over
 - **Max Current (Online/Device)**
-   - The value that are sent from the juicebox device indicating what is the online charge current
 
+  - The value that are sent from the juicebox device indicating what is the online charge current
 
 - Warning about offline / online
-   - Apparently some devices consider offline as a maximum that can be used on device, and even if you put online over that it will consider the minimum value
-       - https://github.com/JuiceRescue/juicepassproxy/pull/69#issuecomment-2408423204
-   - Tests on one JB 2.x / v09u indicates that the online value can be over the offline value for charging
-      - This will allow safe usage of load-balancing logic from a server and use lower values for safety
-      - If you have one of this devices and have limited circuit you must respect your circuit limits when changing the online value
+  - Apparently some devices consider offline as a maximum that can be used on device, and even if you put online over that it will consider the minimum value
+    - https://github.com/JuiceRescue/juicepassproxy/pull/69#issuecomment-2408423204
+  - Tests on one JB 2.x / v09u indicates that the online value can be over the offline value for charging
+    - This will allow safe usage of load-balancing logic from a server and use lower values for safety
+    - If you have one of this devices and have limited circuit you must respect your circuit limits when changing the online value
 
 ## Energy
+
 - **Energy Session**
-   - the Juicebox device reset this value when car changes from **Charging** to **Plugged In** State
+  - the Juicebox device reset this value when car changes from **Charging** to **Plugged In** State
 
 ## Multiple JuiceBoxes
-- Multiple instances of JPP must be executed, one per JuiceBox.
-    - Each JPP instance should specify the following parameters in addition to the basic parameters.
-        - **--name** - each should use a different name, because this is the identifier of MQTT topic
-        - **--juicebox_id** - defining this disable the telnet and will start faster, must be the correct serial of each device
-        - **--local_port** - each needs to use their own port but make sure the UDP 8042 redirection rule matches the destination port
-        - **--config_loc** - each needs their own directory
-    - Future versions can be able to work with multiple devices : https://github.com/JuiceRescue/juicepassproxy/issues/102
 
+- Multiple instances of JPP must be executed, one per JuiceBox.
+  - Each JPP instance should specify the following parameters in addition to the basic parameters.
+    - **--name** - each should use a different name, because this is the identifier of MQTT topic
+    - **--juicebox_id** - defining this disable the telnet and will start faster, must be the correct serial of each device
+    - **--local_port** - each needs to use their own port but make sure the UDP 8042 redirection rule matches the destination port
+    - **--config_loc** - each needs their own directory
+  - Future versions can be able to work with multiple devices : https://github.com/JuiceRescue/juicepassproxy/issues/102
 
 ## Configuration file
+
 - You can configure initial state of mqtt entities :
-    - **ENTITY_initial_state** or **SERIAL_ENTITY_initial_state**
-    - **current_max_offline_set_initial_state** can be used for device that does not send current_max_offline value on status messages (v07 protocol) and do faster startup
-    
+  - **ENTITY_initial_state** or **SERIAL_ENTITY_initial_state**
+  - **current_max_offline_set_initial_state** can be used for device that does not send current_max_offline value on status messages (v07 protocol) and do faster startup
+
 ## Upgrading from older versions if you have any problem with wrong entities on Homeassistant
+
 - Stop juicepassproxy
 - Remove old configuration on MQTT, using mosquitto_sub or any other MQTT client
-    - **mosquitto_sub -t "homeassistant/+/JuiceBox/+/config" -v --remove-retained**
+  - **mosquitto_sub -t "homeassistant/+/JuiceBox/+/config" -v --remove-retained**
 - Remove Juicebox device on Homeassistant
 - Start juicepassproxy

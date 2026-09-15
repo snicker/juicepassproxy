@@ -37,6 +37,8 @@ from juicebox_mqtthandler import JuiceboxMQTTHandler
 from juicebox_telnet import JuiceboxTelnet
 from juicebox_udpcupdater import JuiceboxUDPCUpdater
 from juicebox_config import JuiceboxConfig
+from croniter import croniter
+from datetime import datetime
 
 logging.basicConfig(
     format=LOG_FORMAT,
@@ -177,6 +179,35 @@ async def get_juicebox_id(juicebox_host, telnet_port, telnet_timeout=None):
     return None
 
 
+async def send_reboot_command(juicebox_host, telnet_port, mqtt_handler, telnet_timeout, udpc_updater):
+    try:
+        entity_values = mqtt_handler.get_entity_values()
+        
+        # Validate the 'status' of the juicebox is 'Unplugged'
+        if entity_values.get('status') == 'Unplugged':
+            if udpc_updater is not None:
+                await udpc_updater.close()
+                _LOGGER.info("UDPC Updater stopped.")
+            async with JuiceboxTelnet(
+                juicebox_host,
+                telnet_port,
+                loglevel=_LOGGER.getEffectiveLevel(),
+                timeout=telnet_timeout,
+            ) as tn:
+                await tn.send_command("reboot")
+                _LOGGER.info("Reboot command sent successfully.")
+        else:
+            _LOGGER.warning("Juicebox status is not 'Unplugged'. Reboot command not sent.")
+    except TimeoutError as e:
+        _LOGGER.warning(
+            "Error in sending reboot command via Telnet. "
+            f"({e.__class__.__qualname__}: {e})"
+        )
+    except ConnectionResetError as e:
+        _LOGGER.warning(
+            "Error in sending reboot command via Telnet. "
+            f"({e.__class__.__qualname__}: {e})"
+        )
 
 
 def ip_to_tuple(ip):
@@ -184,6 +215,16 @@ def ip_to_tuple(ip):
         return ip
     ip, port = ip.split(":")
     return (ip, int(port))
+
+
+async def scheduled_task(cron_schedule, task_function, *args):
+    base_time = datetime.now()
+    cron = croniter(cron_schedule, base_time)
+    while True:
+        next_run = cron.get_next(datetime)
+        sleep_duration = (next_run - datetime.now()).total_seconds()
+        await asyncio.sleep(sleep_duration)
+        await task_function(*args)
 
 
 async def parse_args():
@@ -352,6 +393,13 @@ async def parse_args():
         type=str,
         metavar="IP",
         help="Destination IP (and optional port) of EnelX Server. If not defined, --juicebox_host required and then will obtain it automatically. (Ex. 54.161.185.130:8047) [Deprecated: -d --dst]",
+    )
+
+    parser.add_argument(
+        "--cron_reboot_schedule",
+        type=str,
+        metavar="CRON",
+        help="Cron-like schedule for executing a task (e.g., '*/5 * * * *' for every 5 minutes).",
     )
 
     return parser.parse_args()
@@ -579,6 +627,11 @@ async def main():
             )
             jpp_task_list.append(
                 asyncio.create_task(udpc_updater.start(), name="udpc_updater")
+            )
+
+        if args.cron_reboot_schedule:
+            jpp_task_list.append(
+                asyncio.create_task(scheduled_task(args.cron_reboot_schedule, send_reboot_command, args.juicebox_host, args.telnet_port, mqtt_handler, telnet_timeout, udpc_updater), name="scheduled_task")
             )
 
         try:

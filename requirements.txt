@@ -5,3 +5,4 @@ pyyaml
 telnetlib3
 aiorun
 asyncio-dgram >= 2.2.0
+croniter

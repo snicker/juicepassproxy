@@ -599,3 +599,9 @@ class JuiceboxMQTTHandler:
         self._error_timestamp_list = temp_list
         self._error_count = len(self._error_timestamp_list)
         _LOGGER.debug(f"Errors in last {ERROR_LOOKBACK_MIN} min: {self._error_count}")
+
+    def get_entity_values(self):
+        entity_values = {}
+        for name, entity in self._entities.items():
+            entity_values[name] = entity.state
+        return entity_values

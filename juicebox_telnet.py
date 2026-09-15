@@ -138,3 +138,12 @@ class JuiceboxTelnet:
             await self.readuntil(b">")
             await self.write(b"save\n")
             await self.readuntil(b">")
+
+    async def send_command(self, command: str):
+        if await self.open():
+            await self.write(b"\n")
+            await self.readuntil(b"> ")
+            cmd = f"{command}\r\n".encode("ascii")
+            await self.write(cmd)
+            await self.readuntil(b">")
+            _LOGGER.info(f"Command '{command}' sent successfully.")
